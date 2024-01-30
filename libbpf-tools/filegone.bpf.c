@@ -59,27 +59,30 @@ int BPF_KPROBE(vfs_unlink, void *arg0, void *arg1, void *arg2)
 	bpf_map_update_elem(&currevent, &tid, &event, BPF_ANY);
 	return 0;
 }
-
+/*int vfs_rename(struct inode *old_dir, struct dentry *old_dentry, struct inode *new_dir, 
+	struct dentry *new_dentry, struct inode **delegated_inode, unsigned int flags);
+*/
 SEC("kprobe/vfs_rename")
-int BPF_KPROBE(vfs_rename, void *arg0, void *arg1, void *arg2)
+int BPF_KPROBE(vfs_rename, void *arg0, void *arg1, void *arg2, void *arg3, void *arg4, void *arg5)
 {
 	u64 id = bpf_get_current_pid_tgid();
 	struct event event = {};
-	const u8 *qs_name_ptr;
+	const u8 *qs_name_ptr; 
 	const u8 *qd_name_ptr;
 	//u8 action;
 	u32 tgid = id >> 32;
 	u32 tid = (u32)id;
-	//bool has_arg = renamedata_has_old_mnt_userns_field() || renamedata_has_new_mnt_idmap_field();
+	// bool has_arg = renamedata_has_old_mnt_userns_field() || renamedata_has_new_mnt_idmap_field();
 
 	qs_name_ptr = BPF_CORE_READ((struct dentry *)arg1, d_name.name);
 	qd_name_ptr = BPF_CORE_READ((struct dentry *)arg2, d_name.name);
 
 	bpf_get_current_comm(&event.task, sizeof(event.task));
-	event.tgid = tgid;
-	event.action = 'R';
+	
 	bpf_probe_read_kernel_str(&event.fname, sizeof(event.fname), qs_name_ptr);
 	bpf_probe_read_kernel_str(&event.fname2, sizeof(event.fname2), qd_name_ptr);
+	event.action = 'R';
+	event.tgid = tgid;
 
 	bpf_map_update_elem(&currevent, &tid, &event, BPF_ANY);
 	return 0;
