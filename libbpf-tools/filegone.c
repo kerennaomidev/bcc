@@ -94,6 +94,7 @@ void handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 	const char *action_str;
 	struct tm *tm;
 	char ts[32];
+	char file_str[32];
 	time_t t;
 
 	if (data_sz < sizeof(e)) {
@@ -102,17 +103,24 @@ void handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 	}
 	/* Copy data as alignment in the perf buffer isn't guaranteed. */
 	memcpy(&e, data, sizeof(e));
-
+	
 	action_str = action2str(e.action);
-
+	if (strcmp(action_str,"RENAME")==0){
+		strcpy(file_str, e.fname);
+		strcat(file_str, " > ");
+		strcat(file_str, e.fname2);
+	}
+	else{
+		strcpy(file_str, e.fname);
+	}
+	
 	time(&t);
 	tm = localtime(&t);
 	strftime(ts, sizeof(ts), "%H:%M:%S", tm);
 
-
 	printf("%-8s %-6d %-16s %-6s %s\n",
 	       ts, e.tgid, e.task, action_str,
-	       e.fname);
+	       file_str);
 }
 
 void handle_lost_events(void *ctx, int cpu, __u64 lost_cnt)
