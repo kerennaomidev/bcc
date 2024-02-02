@@ -22,7 +22,7 @@ static struct env {
 	bool verbose;
 } env = { };
 
-const char *argp_program_version = "filelife 0.1";
+const char *argp_program_version = "filegone 0.1";
 const char *argp_program_bug_address =
 	"https://github.com/iovisor/bcc/tree/master/libbpf-tools";
 const char argp_program_doc[] =
@@ -94,7 +94,7 @@ void handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 	const char *action_str;
 	struct tm *tm;
 	char ts[32];
-	char file_str[32];
+	char file_str[512];
 	time_t t;
 
 	if (data_sz < sizeof(e)) {
