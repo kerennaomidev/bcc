@@ -22,7 +22,7 @@ struct {
 	__type(value, struct event);
 } currevent SEC(".maps");
 
-/**
+/* 
  * In different kernel versions, function vfs_unlink() has two declarations,
  * and their parameter lists are as follows:
  *
@@ -44,7 +44,7 @@ int BPF_KPROBE(vfs_unlink, void *arg0, void *arg1, void *arg2)
 	u32 tid = (u32)id;
 	bool has_arg = renamedata_has_old_mnt_userns_field()
 				|| renamedata_has_new_mnt_idmap_field();
-
+	
 	qs_name_ptr = has_arg
 		? BPF_CORE_READ((struct dentry *)arg2, d_name.name)
 		: BPF_CORE_READ((struct dentry *)arg1, d_name.name);
@@ -57,32 +57,41 @@ int BPF_KPROBE(vfs_unlink, void *arg0, void *arg1, void *arg2)
 	bpf_map_update_elem(&currevent, &tid, &event, BPF_ANY);
 	return 0;
 }
-/*int vfs_rename(struct inode *old_dir, struct dentry *old_dentry, struct inode *new_dir, 
+/* 
+ * vfs_rename() has two declarations in different kernel versions with the following parameter lists-
+ * int vfs_rename(struct inode *old_dir, struct dentry *old_dentry, struct inode *new_dir, 
 	struct dentry *new_dentry, struct inode **delegated_inode, unsigned int flags);
+ * int vfs_rename(struct renamedata *);
 */
 SEC("kprobe/vfs_rename")
-int BPF_KPROBE(vfs_rename, void *arg0)
+//int BPF_KPROBE(vfs_rename, void *arg0)
+int BPF_KPROBE(vfs_rename, void *arg0, void *arg1, void *arg2, void *arg3)
 {
 	u64 id = bpf_get_current_pid_tgid();
 	struct event event = {};
 	struct qstr qs_name_ptr; 
 	struct qstr qd_name_ptr;
-	//u8 action;
 	u32 tgid = id >> 32;
 	u32 tid = (u32)id;
-	// bool has_arg = renamedata_has_old_mnt_userns_field() || renamedata_has_new_mnt_idmap_field();
-
-	qs_name_ptr = BPF_CORE_READ((struct renamedata *)arg0, old_dentry, d_name);
-	qd_name_ptr = BPF_CORE_READ((struct renamedata *)arg0, new_dentry, d_name);
-
+	//bool has_arg = renamedata();
+	bool has_arg = renamedata_has_old_mnt_userns_field()
+				|| renamedata_has_new_mnt_idmap_field();
+	
+	qs_name_ptr = has_arg
+		? BPF_CORE_READ((struct renamedata *)arg0, old_dentry, d_name)
+		: BPF_CORE_READ((struct dentry *)arg1, d_name);
+	
+	qd_name_ptr = has_arg
+		? BPF_CORE_READ((struct renamedata *)arg0, new_dentry, d_name)
+		: BPF_CORE_READ((struct dentry *)arg3, d_name);
+	
 	bpf_get_current_comm(&event.task, sizeof(event.task));
 	
 	bpf_probe_read_kernel_str(&event.fname, sizeof(event.fname), qs_name_ptr.name);
 	bpf_probe_read_kernel_str(&event.fname2, sizeof(event.fname2), qd_name_ptr.name);
+	
 	event.action = 'R';
 	event.tgid = tgid;
-
-	//bpf_trace_printk("fname: %s, fname2: %s\n", event.fname, event.fname2);
 
 	bpf_map_update_elem(&currevent, &tid, &event, BPF_ANY);
 	return 0;
