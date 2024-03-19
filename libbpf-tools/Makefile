@@ -67,6 +67,7 @@ APPS = \
 	llcstat \
 	mdflush \
 	mountsnoop \
+	netqtop \
 	numamove \
 	offcputime \
 	oomkill \
