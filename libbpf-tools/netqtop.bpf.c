@@ -29,25 +29,24 @@ struct {
 	__type(value, struct queue_data);
 } rxevent SEC(".maps");
 
-
 SEC("tracepoint/net/net_dev_start_xmit")
 int trace_net_dev_start_xmit(struct trace_event_raw_sys_enter *ctx) {
-	struct sk_buff *skb = (struct sk_buff*)ctx->args[0];
-       	if (!name_filter(skb)) {
-        	return 0;      
-	}
-    	u16 qid = skb->queue_mapping;
-    	struct queue_data newdata;
-    	__builtin_memset(&newdata, 0, sizeof(newdata));
-    	struct queue_data *data = tx_q.lookup_or_try_init(&qid, &newdata);
-    	if (!data) {
-        	return 0;  
-   	}
-    	
-	update_data(data, skb->len); 
-    	bpf_map_update_elem(&txevent, &qid, data, BPF_ANY);
-    
-   	return 0;  
+    struct sk_buff *skb = (struct sk_buff*)ctx->args[0];
+    if (!name_filter(skb)) {
+        return 0;
+    }
+    u16 qid = skb->queue_mapping;
+    struct queue_data *data = tx_q.lookup(&qid);
+    if (!data) {
+        struct queue_data newdata = {0};  
+        bpf_map_update_elem(&txevent, &qid, &newdata, BPF_ANY);
+        return 0;
+    }
+
+    update_data(data, skb->len);
+    bpf_map_update_elem(&txevent, &qid, data, BPF_ANY);
+
+    return 0;
 }
 
 SEC("tracepoint/net/netif_receive_skb")
@@ -57,7 +56,7 @@ int trace_netif_receive_skb(struct trace_event_raw_sys_enter *ctx) {
     bpf_probe_read(&skb, sizeof(skb), ctx->args[0]);
     
     if (!name_filter(&skb)) {
-        return 0;  // Filter out the packet
+        return 0;  
     }
 
     u16 qid = 0;
@@ -69,6 +68,8 @@ int trace_netif_receive_skb(struct trace_event_raw_sys_enter *ctx) {
     __builtin_memset(&newdata, 0, sizeof(newdata));
     struct queue_data *data = rx_q.lookup_or_try_init(&qid, &newdata);
     if (!data) {
+        struct queue_data newdata = {0};  
+        bpf_map_update_elem(&txevent, &qid, &newdata, BPF_ANY);
         return 0;  
     }
 
@@ -77,3 +78,11 @@ int trace_netif_receive_skb(struct trace_event_raw_sys_enter *ctx) {
 
     return 0; 
 }
+
+
+//cleanup:
+//	bpf_map_delete_elem(&name_map);
+//	return 0;
+//}
+
+char LICENSE[] SEC("license") = "GPL";
