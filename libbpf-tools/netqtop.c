@@ -75,10 +75,10 @@ char* to_str(double num) {
 }
 
 void print_table(struct bpf_map *table, int qnum) {
-    printf("%-11s %-11s %-11s %-11s %-11s %-11s %-11s\n",
+    printf("%-11s%-11s%-11s%-11s%-11s%-11s%-11s\n",
            "QueueID", "avg_size", "[0, 64)", "[64, 512)", "[512, 2K)", "[2K, 16K)", "[16K, 64K)");
 
-    if (args.throughput) {
+    if (throughput==true) {
         printf("%-11s %-11s", "BPS", "PPS");
     }
 
@@ -94,11 +94,11 @@ void print_table(struct bpf_map *table, int qnum) {
         }
 
         double avg = (value.num_pkt != 0) ? value.total_pkt_len / value.num_pkt : 0;
-        printf(" %-11d %-11s %-11s %-11s %-11s %-11s %-11s\n",
+        printf(" %-11d%-11s%-11s%-11s%-11s%-11s%-11s\n",
                key, to_str(avg), to_str(value.size_64B), to_str(value.size_512B),
                to_str(value.size_2K), to_str(value.size_16K), to_str(value.size_64K));
 
-        if (args.throughput) {
+        if (throughput==true) {
             double BPS = value.total_pkt_len / print_interval;
             double PPS = value.num_pkt / print_interval;
             printf("%-11s%-11s", to_str(BPS), to_str(PPS));
