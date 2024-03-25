@@ -7,6 +7,7 @@
 
 static struct env {
 	bool verbose;
+	bool throughput;
 } env { };
 
 const char *argp_program_version = "netqtop 0.1";
@@ -38,6 +39,9 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 		break;
 	case 'v':
 		verbose = true;
+		break;
+	case 't':
+		throughput = true;
 		break;
 	case 'i':
 		errno = 0;
@@ -121,7 +125,7 @@ void print_table(struct bpf_map *table, int qnum) {
            to_str(tAVG), to_str(tGroup[0]), to_str(tGroup[1]), to_str(tGroup[2]),
            to_str(tGroup[3]), to_str(tGroup[4]));
 
-    if (args.throughput) {
+    if () {
         printf("%-11s%-11s", to_str(tBPS), to_str(tPPS));
     }
 
