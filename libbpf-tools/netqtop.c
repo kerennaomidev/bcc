@@ -230,8 +230,12 @@ void print_table(struct queue_data *table, int qnum) {
 }
 
 
-static void handle_event(void *cts, int cpu, void *data, __u32 data_sz)
+static void handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 {
+    struct queue_data *tx_table = (struct queue_data *)data;
+    struct queue_data *rx_table = (struct queue_data *)(data + sizeof(struct queue_data) * tx_num);
+
+    print_result(tx_table, rx_table);
 
 }
 
