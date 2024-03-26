@@ -5,7 +5,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
-#include <dirent.h>  
+#include <dirent.h>
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
 #include <argp.h>
@@ -14,12 +14,16 @@
 #include "compat.h"
 #include "trace_helpers.h"
 
-static struct netqtop_bpf *obj = NULL; 
-static char dev_name[IFNAMSIZ] = ""; 
+#define PERF_BUFFER_PAGES       16
+#define PERF_POLL_TIMEOUT_MS    100
+#define warn(...) fprintf(stderr, __VA_ARGS__)
+
+static char dev_name[IFNAMSIZ] = "";
 //move these functions down
+//rewrite cleanup fn to match the other programs
 static void cleanup() {
     if (obj) {
-        netqtop_bpf__destroy(obj); 
+        netqtop_bpf__destroy(obj);
         obj = NULL;
     }
 //    libbpf_cleanup(); // Clean up libbpf resources
@@ -117,12 +121,14 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
     }
     return 0;
 }
+
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
-	if (level == LIBBPF_DEBUG && !env.verbose)
-		return 0;
-	return vfprintf(stderr, format, args);
+        if (level == LIBBPF_DEBUG && !env.verbose)
+                return 0;
+        return vfprintf(stderr, format, args);
 }
+
 char *to_str(double num)
 {
     static char buffer[20];
@@ -148,22 +154,90 @@ char *to_str(double num)
     return buffer;
 }
 
-void print_table(int qnum)
-{
-    printf("%-11s%-11s%-11s%-11s%-11s%-11s%-11s\n",
+void print_table(struct queue_data *table, int qnum) {
+    
+    printf("%-11s%-11s%-11s%-11s%-11s%-11s%-11s",
            "QueueID", "avg_size", "[0, 64)", "[64, 512)", "[512, 2K)", "[2K, 16K)", "[16K, 64K)");
 
-    if (env.throughput)
-    {
-        printf("%-11s %-11s", "BPS", "PPS");
+    if (env.throughput) {
+        printf("%-11s%-11s", "BPS", "PPS");
     }
-
     printf("\n");
 
+    int tBPS = 0, tPPS = 0, tAVG = 0;
+    int tGroup[5] = {0};
+    int tpkt = 0, tlen = 0;
+    int qids[qnum];
+    memset(qids, 0, sizeof(qids));
 
-    for (int i = 0; i < qnum; ++i)
-    {
+    for (int i = 0; i < qnum; ++i) {
+        struct queue_data *item = &table[i];
+        if (item->num_pkt > 0) {
+            qids[i] = 1;
+            tlen += item->total_pkt_len;
+            tpkt += item->num_pkt;
+            tGroup[0] += item->size_64B;
+            tGroup[1] += item->size_512B;
+            tGroup[2] += item->size_2K;
+            tGroup[3] += item->size_16K;
+            tGroup[4] += item->size_64K;
+        }
     }
+
+    tBPS = tlen / print_interval;
+    tPPS = tpkt / print_interval;
+    if (tpkt != 0) {
+        tAVG = tlen / tpkt;
+    }
+
+    for (int k = 0; k < qnum; ++k) {
+        struct queue_data *item = &table[k];
+        int avg = 0;
+        if (item->num_pkt != 0) {
+            avg = item->total_pkt_len / item->num_pkt;
+        }
+
+        printf("%-11d%-11s%-11s%-11s%-11s%-11s%-11s", k,
+               to_str(avg),
+               to_str(item->size_64B),
+               to_str(item->size_512B),
+               to_str(item->size_2K),
+               to_str(item->size_16K),
+               to_str(item->size_64K));
+
+        if (env.throughput) {
+            int BPS = item->total_pkt_len / print_interval;
+            int PPS = item->num_pkt / print_interval;
+            printf("%-11s%-11s\n", to_str(BPS), to_str(PPS));
+        } else {
+            printf("\n");
+        }
+    }
+
+    printf(" Total      %-11s%-11s%-11s%-11s%-11s%-11s",
+           to_str(tAVG),
+           to_str(tGroup[0]),
+           to_str(tGroup[1]),
+           to_str(tGroup[2]),
+           to_str(tGroup[3]),
+           to_str(tGroup[4]));
+
+    if (env.throughput) {
+        printf("%-11s%-11s\n", to_str(tBPS), to_str(tPPS));
+    } else {
+        printf("\n");
+    }
+}
+
+
+static void handle_event(void *cts, int cpu, void *data, __u32 data_sz)
+{
+
+}
+
+static void handle_lost_events(void *ctx, int cpu, __u64 lost_cnt)
+{
+        warn("lost %llu events on CPU #%d\n", lost_cnt, cpu);
 }
 
 int main(int argc, char **argv)
@@ -175,11 +249,20 @@ int main(int argc, char **argv)
         .doc = argp_program_doc,
     };
 
+    struct perf_buffer *pb = NULL;
+    struct netqtop_bpf *obj;
     int err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
+
     if (err)
         return err;
 
     libbpf_set_print(libbpf_print_fn);
+
+    err = ensure_core_btf(&open_opts);
+    if (err) {
+        fprintf(stderr, "failed to fetch necessary BTF for CO-RE: %s\n", strerror(-err));
+                return 1;
+        }
 
     obj = netqtop_bpf__open_opts(&open_opts);
     if (!obj)
@@ -196,12 +279,19 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    pb = perf_buffer__new(bpf_map__fd(obj->maps.events), PERF_BUFFER_PAGES, handle_event, handle_lost_events, NULL, NULL);
+    if (!pb) {
+            err = -errno;
+            fprintf(stderr, "failed to open perf buffer: %d\n", err);
+            cleanup();
+    }
+
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
     int queue_num = get_queue_num(dev_name);
 
-   
+
     while (1)
     {
         if (env.throughput) {
@@ -213,7 +303,6 @@ int main(int argc, char **argv)
         sleep(env.interval);
     }
 
-    cleanup(); 
+    cleanup();
     return 0;
 }
-
