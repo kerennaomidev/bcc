@@ -4,7 +4,6 @@
 #include "netqtop.h"
 #include <bpf/bpf_helpers.h>
 
-// Define BPF map types
 struct {
     __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
     __uint(max_entries, 1);
@@ -92,8 +91,6 @@ int trace_netif_receive_skb(struct trace_event_raw_sys_enter *ctx) {
     }
 
     u16 qid = 0;
-    // Since bpf_skb_rx_queue_recorded and bpf_skb_get_rx_queue are not available,
-    // we'll omit the queue-related functionality here.
 
     struct queue_data *data = bpf_map_lookup_elem(&rxevent, &qid);
     if (!data) {
