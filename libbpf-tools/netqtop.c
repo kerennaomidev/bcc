@@ -13,56 +13,9 @@
 #include "netqtop.skel.h"
 #include "compat.h"
 #include "trace_helpers.h"
-
-#define PERF_BUFFER_PAGES       16
-#define PERF_POLL_TIMEOUT_MS    100
-#define warn(...) fprintf(stderr, __VA_ARGS__)
+#include "btf_helpers.h"
 
 static char dev_name[IFNAMSIZ] = "";
-//move these functions down
-//rewrite cleanup fn to match the other programs
-static void cleanup() {
-    if (obj) {
-        netqtop_bpf__destroy(obj);
-        obj = NULL;
-    }
-//    libbpf_cleanup(); // Clean up libbpf resources
-}
-
-static void signal_handler(int signo) {
-    cleanup();
-    exit(EXIT_FAILURE);
-}
-
-int get_queue_num(const char *dev_name) {
-    DIR *dir;
-    struct dirent *entry;
-    int tx_queues = 0;
-    int rx_queues = 0;
-
-    char path[256];
-    snprintf(path, sizeof(path), "/sys/class/net/%s/queues", dev_name);
-
-    dir = opendir(path);
-    if (dir == NULL) {
-        fprintf(stderr, "Failed to open %s\n", path);
-        exit(EXIT_FAILURE);
-    }
-
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_DIR && strncmp(entry->d_name, ".", 1) != 0 && strncmp(entry->d_name, "..", 2) != 0) {
-            if (strncmp(entry->d_name, "rx", 2) == 0) {
-                rx_queues++;
-            } else if (strncmp(entry->d_name, "tx", 2) == 0) {
-                tx_queues++;
-            }
-        }
-    }
-
-    closedir(dir);
-    return tx_queues > rx_queues ? tx_queues : rx_queues;
-}
-
 static struct env {
     bool verbose;
     bool throughput;
@@ -154,8 +107,37 @@ char *to_str(double num)
     return buffer;
 }
 
-void print_table(struct queue_data *table, int qnum) {
-    
+int get_queue_num(const char *dev_name) {
+    DIR *dir;
+    struct dirent *entry;
+    int tx_queues = 0;
+    int rx_queues = 0;
+
+    char path[256];
+    snprintf(path, sizeof(path), "/sys/class/net/%s/queues", dev_name);
+
+    dir = opendir(path);
+    if (dir == NULL) {
+        fprintf(stderr, "Failed to open %s\n", path);
+        exit(EXIT_FAILURE);
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_DIR && strncmp(entry->d_name, ".", 1) != 0 && strncmp(entry->d_name, "..", 2) != 0) {
+            if (strncmp(entry->d_name, "rx", 2) == 0) {
+                rx_queues++;
+            } else if (strncmp(entry->d_name, "tx", 2) == 0) {
+                tx_queues++;
+            }
+        }
+    }
+
+    closedir(dir);
+    return tx_queues > rx_queues ? tx_queues : rx_queues;
+}
+
+void print_table(struct queue_data *table, int qnum, int print_interval) {
+
     printf("%-11s%-11s%-11s%-11s%-11s%-11s%-11s",
            "QueueID", "avg_size", "[0, 64)", "[64, 512)", "[512, 2K)", "[2K, 16K)", "[16K, 64K)");
 
@@ -229,19 +211,34 @@ void print_table(struct queue_data *table, int qnum) {
     }
 }
 
+void print_result() {
+    struct queue_data *tx_table, *rx_table;
+    int tx_qnum, rx_qnum;
 
-static void handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
-{
-    struct queue_data *tx_table = (struct queue_data *)data;
-    struct queue_data *rx_table = (struct queue_data *)(data + sizeof(struct queue_data) * tx_num);
+    tx_table = obj->txevent;
+    tx_qnum = get_queue_num(dev_name);
 
-    print_result(tx_table, rx_table);
+    printf("%s\n", asctime(localtime(&(time_t){time(NULL)})));
+    printf("TX\n");
+    print_table(tx_table, tx_qnum, env.interval);
 
+    rx_table = obj->rxevent;
+    rx_qnum = get_queue_num(dev_name);
+
+    printf("\n");
+    printf("RX\n");
+    print_table(rx_table, rx_qnum, env.interval);
+
+    
+    if (env.throughput) {
+        printf("-----------------------------------------------------------------------------\n");
+    } else {
+        printf("-----------------------------------------------------------------------------\n");
+    }
 }
 
-static void handle_lost_events(void *ctx, int cpu, __u64 lost_cnt)
-{
-        warn("lost %llu events on CPU #%d\n", lost_cnt, cpu);
+void sig_int(int signo) {
+    exit(signo);
 }
 
 int main(int argc, char **argv)
@@ -253,7 +250,6 @@ int main(int argc, char **argv)
         .doc = argp_program_doc,
     };
 
-    struct perf_buffer *pb = NULL;
     struct netqtop_bpf *obj;
     int err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
 
@@ -265,8 +261,8 @@ int main(int argc, char **argv)
     err = ensure_core_btf(&open_opts);
     if (err) {
         fprintf(stderr, "failed to fetch necessary BTF for CO-RE: %s\n", strerror(-err));
-                return 1;
-        }
+        return 1;
+    }
 
     obj = netqtop_bpf__open_opts(&open_opts);
     if (!obj)
@@ -279,34 +275,26 @@ int main(int argc, char **argv)
     if (err)
     {
         fprintf(stderr, "failed to load and verify BPF programs\n");
-        cleanup();
-        return 1;
+        goto cleanup;
     }
 
-    pb = perf_buffer__new(bpf_map__fd(obj->maps.events), PERF_BUFFER_PAGES, handle_event, handle_lost_events, NULL, NULL);
-    if (!pb) {
-            err = -errno;
-            fprintf(stderr, "failed to open perf buffer: %d\n", err);
-            cleanup();
+    if (signal(SIGINT, sig_int) == SIG_ERR)
+    {
+        perror("can't set signal handler");
+        err = 1;
+        goto cleanup;
     }
-
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-
     int queue_num = get_queue_num(dev_name);
-
-
     while (1)
     {
-        if (env.throughput) {
-            print_table(queue_num);
-        } else {
-            print_table(queue_num);
-        }
-
-        sleep(env.interval);
+            print_result(obj);
+            sleep(env.interval);
     }
 
-    cleanup();
-    return 0;
+cleanup:
+    netqtop_bpf__destroy(obj);
+    cleanup_core_btf(&open_opts);
+
+    return err != 0;
 }
+
