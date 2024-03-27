@@ -5,7 +5,7 @@
 #include <bpf/bpf_helpers.h>
 
 struct {
-    __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1);
     __type(key, int);
     __type(value, union name_buf);
