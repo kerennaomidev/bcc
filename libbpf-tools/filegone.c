@@ -26,7 +26,7 @@ const char *argp_program_version = "filegone 0.1";
 const char *argp_program_bug_address =
 	"https://github.com/iovisor/bcc/tree/master/libbpf-tools";
 const char argp_program_doc[] =
-"Trace why a file is gone (deleted or renamed).\n"
+"Trace why a file has vanished (either deleted or renamed).\n"
 "\n"
 "USAGE: filegone  [--help] [-p PID]\n"
 "\n"
@@ -81,11 +81,11 @@ static void sig_int(int signo)
 
 const char *action2str(char action)
 {
-	if(action == 'D') {
+	if (action == 'D')
 		return "DELETE";
-	} else {
+	else
 		return "RENAME";
-	}
+
 }
 
 void handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
@@ -94,7 +94,7 @@ void handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 	const char *action_str;
 	struct tm *tm;
 	char ts[32];
-	char file_str[512];
+	char file_str[96];
 	time_t t;
 
 	if (data_sz < sizeof(e)) {
@@ -105,14 +105,13 @@ void handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 	memcpy(&e, data, sizeof(e));
 	
 	action_str = action2str(e.action);
-	if (strcmp(action_str,"RENAME")==0){
+	if (strcmp(action_str,"RENAME")==0) {
 		strcpy(file_str, e.fname);
 		strcat(file_str, " > ");
 		strcat(file_str, e.fname2);
 	}
-	else{
+	else
 		strcpy(file_str, e.fname);
-	}
 	
 	time(&t);
 	tm = localtime(&t);
@@ -160,9 +159,6 @@ int main(int argc, char **argv)
 
 	/* initialize global data (filtering options) */
 	obj->rodata->targ_tgid = env.pid;
-
-	//if (!kprobe_exists("security_inode_create"))
-	//	bpf_program__set_autoload(obj->progs.security_inode_create, false);
 
 	err = filegone_bpf__load(obj);
 	if (err) {
