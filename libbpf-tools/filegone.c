@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 #include <argp.h>
 #include <signal.h>
 #include <stdio.h>
@@ -90,11 +91,11 @@ const char *action2str(char action)
 
 void handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 {
-	struct event e;
 	const char *action_str;
+	char file_str[96];
+	struct event e;
 	struct tm *tm;
 	char ts[32];
-	char file_str[96];
 	time_t t;
 
 	if (data_sz < sizeof(e)) {
