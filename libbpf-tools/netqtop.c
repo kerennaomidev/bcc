@@ -1,4 +1,4 @@
-#include <stdio.h>
+#include <stdio.h> 
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
@@ -14,6 +14,7 @@
 #include "compat.h"
 #include "trace_helpers.h"
 #include "btf_helpers.h"
+#define MAX_QUEUES 1024
 
 static char dev_name[IFNAMSIZ] = "";
 static struct env {
@@ -23,17 +24,15 @@ static struct env {
 } env = {};
 
 const char *argp_program_version = "netqtop 0.1";
-const char *argp_program_bug_address =
-    "https://github.com/iovisor/bcc/tree/master/libbpf-tools";
-const char argp_program_doc[] =
-    "Traces the kernel functions performing packet transmit (xmit_one)\n"
-    "and packet receive (__netif_receive_skb_core) on data link layer.\n"
-    "USAGE: netqtop [-n] [nic] [-t throughput] [-i interval]\n"
-    "\n"
-    "EXAMPLES:\n"
-    "    netqtop -n lo                 #  1s\n"
-    "    netqtop -n lo -i 3  # 1s traffic summaries on lo\n"
-    "    netqtop -n lo -i 10 # 10s traffic summaries on lo with BPS and PPS info";
+const char *argp_program_bug_address = "https://github.com/iovisor/bcc/tree/master/libbpf-tools";
+const char argp_program_doc[] = "Traces the kernel functions performing packet transmit (xmit_one)\n"
+                                "and packet receive (__netif_receive_skb_core) on data link layer.\n"
+                                "USAGE: netqtop [-n] [nic] [-t throughput] [-i interval]\n"
+                                "\n"
+                                "EXAMPLES:\n"
+                                "    netqtop -n lo                 #  1s\n"
+                                "    netqtop -n lo -i 3  # 1s traffic summaries on lo\n"
+                                "    netqtop -n lo -i 10 # 10s traffic summaries on lo with BPS and PPS info";
 
 static const struct argp_option opts[] = {
     {"name", 'n', "NAME", 0, "Specify network interface"},
@@ -43,64 +42,51 @@ static const struct argp_option opts[] = {
     {}
 };
 
-static error_t parse_arg(int key, char *arg, struct argp_state *state)
-{
-    switch (key)
-    {
-    case 'h':
-        argp_state_help(state, stderr, ARGP_HELP_STD_HELP);
-        break;
-    case 'v':
-        env.verbose = true;
-        break;
-    case 't':
-        env.throughput = true;
-        break;
-    case 'i':
-        errno = 0;
-        int interval = strtol(arg, NULL, 10);
-        if (errno || interval <= 0)
-        {
-            printf("Invalid interval: %s\n", arg);
-            exit(1);
-        }
-        env.interval = interval;
-        break;
-    case 'n':
-        strncpy(dev_name, arg, IFNAMSIZ - 1);
-        break;
-    default:
-        return ARGP_ERR_UNKNOWN;
+static error_t parse_arg(int key, char *arg, struct argp_state *state) {
+    switch (key) {
+        case 'h':
+            argp_state_help(state, stderr, ARGP_HELP_STD_HELP);
+            break;
+        case 'v':
+            env.verbose = true;
+            break;
+        case 't':
+            env.throughput = true;
+            break;
+        case 'i':
+            errno = 0;
+            int interval = strtol(arg, NULL, 10);
+            if (errno || interval <= 0) {
+                printf("Invalid interval: %s\n", arg);
+                exit(1);
+            }
+            env.interval = interval;
+            break;
+        case 'n':
+            strncpy(dev_name, arg, IFNAMSIZ - 1);
+            break;
+        default:
+            return ARGP_ERR_UNKNOWN;
     }
     return 0;
 }
 
-static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
-{
-        if (level == LIBBPF_DEBUG && !env.verbose)
-                return 0;
-        return vfprintf(stderr, format, args);
+static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args) {
+    if (level == LIBBPF_DEBUG && !env.verbose)
+        return 0;
+    return vfprintf(stderr, format, args);
 }
 
-char *to_str(double num)
-{
+char *to_str(double num) {
     static char buffer[20];
-    if (num > 1000000)
-    {
+    if (num > 1000000) {
         sprintf(buffer, "%.2fM", num / (1024 * 1024.0));
-    }
-    else if (num > 1000)
-    {
+    } else if (num > 1000) {
         sprintf(buffer, "%.2fK", num / 1024.0);
-    }
-    else
-    {
-        if ((int)num == num)
-        {
+    } else {
+        if ((int)num == num) {
             sprintf(buffer, "%d", (int)num);
-        }
-        else
-        {
+        } else {
             sprintf(buffer, "%.2f", num);
         }
     }
@@ -137,7 +123,6 @@ int get_queue_num(const char *dev_name) {
 }
 
 void print_table(struct queue_data *table, int qnum, int print_interval) {
-
     printf("%-11s%-11s%-11s%-11s%-11s%-11s%-11s",
            "QueueID", "avg_size", "[0, 64)", "[64, 512)", "[512, 2K)", "[2K, 16K)", "[16K, 64K)");
 
@@ -179,7 +164,8 @@ void print_table(struct queue_data *table, int qnum, int print_interval) {
             avg = item->total_pkt_len / item->num_pkt;
         }
 
-        printf("%-11d%-11s%-11s%-11s%-11s%-11s%-11s", k,
+        printf("%-11d%-11d%-11s%-11s%-11s%-11s%-11s%-11s", k,
+               avg,
                to_str(avg),
                to_str(item->size_64B),
                to_str(item->size_512B),
@@ -196,7 +182,7 @@ void print_table(struct queue_data *table, int qnum, int print_interval) {
         }
     }
 
-    printf(" Total      %-11s%-11s%-11s%-11s%-11s%-11s",
+    printf("Total      %-11s%-11s%-11s%-11s%-11s%-11s",
            to_str(tAVG),
            to_str(tGroup[0]),
            to_str(tGroup[1]),
@@ -211,25 +197,34 @@ void print_table(struct queue_data *table, int qnum, int print_interval) {
     }
 }
 
-void print_result() {
-    struct queue_data *tx_table, *rx_table;
+void print_result(struct netqtop_bpf *obj) {
+    int tx_fd, rx_fd;
+    struct queue_data tx_data[MAX_QUEUES], rx_data[MAX_QUEUES];
     int tx_qnum, rx_qnum;
+    __u16 key;
 
-    tx_table = obj->txevent;
     tx_qnum = get_queue_num(dev_name);
+    tx_fd = bpf_map__fd(obj->maps.txevent);
+    for (int i = 0; i < tx_qnum; ++i) {
+        key = i;
+        bpf_map_lookup_elem(tx_fd, &key, &tx_data[i]);
+    }
 
     printf("%s\n", asctime(localtime(&(time_t){time(NULL)})));
     printf("TX\n");
-    print_table(tx_table, tx_qnum, env.interval);
+    print_table(tx_data, tx_qnum, env.interval);
 
-    rx_table = obj->rxevent;
     rx_qnum = get_queue_num(dev_name);
+    rx_fd = bpf_map__fd(obj->maps.rxevent);
+    for (int i = 0; i < rx_qnum; ++i) {
+        key = i;
+        bpf_map_lookup_elem(rx_fd, &key, &rx_data[i]);
+    }
 
     printf("\n");
     printf("RX\n");
-    print_table(rx_table, rx_qnum, env.interval);
+    print_table(rx_data, rx_qnum, env.interval);
 
-    
     if (env.throughput) {
         printf("----------------------------------------------------------------------------------------------------------------------\n");
     } else {
@@ -237,12 +232,12 @@ void print_result() {
     }
 }
 
+
 void sig_int(int signo) {
     exit(signo);
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     LIBBPF_OPTS(bpf_object_open_opts, open_opts);
     static const struct argp argp = {
         .options = opts,
@@ -265,30 +260,26 @@ int main(int argc, char **argv)
     }
 
     obj = netqtop_bpf__open_opts(&open_opts);
-    if (!obj)
-    {
+    if (!obj) {
         fprintf(stderr, "failed to open BPF object\n");
         return 1;
     }
 
     err = netqtop_bpf__load(obj);
-    if (err)
-    {
+    if (err) {
         fprintf(stderr, "failed to load and verify BPF programs\n");
         goto cleanup;
     }
 
-    if (signal(SIGINT, sig_int) == SIG_ERR)
-    {
+    if (signal(SIGINT, sig_int) == SIG_ERR) {
         perror("can't set signal handler");
         err = 1;
         goto cleanup;
     }
-    int queue_num = get_queue_num(dev_name);
-    while (1)
-    {
-            print_result(obj);
-            sleep(env.interval);
+   // int queue_num = get_queue_num(dev_name);
+    while (1) {
+        print_result(obj);
+        sleep(env.interval);
     }
 
 cleanup:
