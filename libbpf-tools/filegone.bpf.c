@@ -64,7 +64,6 @@ int BPF_KPROBE(vfs_unlink, void *arg0, void *arg1, void *arg2)
  * int vfs_rename(struct renamedata *);
 */
 SEC("kprobe/vfs_rename")
-//int BPF_KPROBE(vfs_rename, void *arg0)
 int BPF_KPROBE(vfs_rename, void *arg0, void *arg1, void *arg2, void *arg3)
 {
 	u64 id = bpf_get_current_pid_tgid();
@@ -73,7 +72,6 @@ int BPF_KPROBE(vfs_rename, void *arg0, void *arg1, void *arg2, void *arg3)
 	struct qstr qd_name_ptr;
 	u32 tgid = id >> 32;
 	u32 tid = (u32)id;
-	//bool has_arg = renamedata();
 	bool has_arg = renamedata_has_old_mnt_userns_field()
 				|| renamedata_has_new_mnt_idmap_field();
 	

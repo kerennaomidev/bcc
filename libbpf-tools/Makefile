@@ -51,6 +51,7 @@ APPS = \
 	capable \
 	cpudist \
 	cpufreq \
+	dcstat \
 	drsnoop \
 	execsnoop \
 	exitsnoop \
@@ -68,6 +69,7 @@ APPS = \
 	llcstat \
 	mdflush \
 	mountsnoop \
+	netqtop \
 	numamove \
 	offcputime \
 	oomkill \
