@@ -3,6 +3,7 @@
 #include <bpf/bpf_tracing.h>
 #include "netqtop.h"
 #include <bpf/bpf_helpers.h>
+#include "netqtop.h"
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -106,4 +107,3 @@ int trace_netif_receive_skb(struct trace_event_raw_sys_enter *ctx) {
 }
 
 char LICENSE[] SEC("license") = "GPL";
-
