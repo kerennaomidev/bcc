@@ -3,7 +3,6 @@
 #include <bpf/bpf_tracing.h>
 #include "netqtop.h"
 #include <bpf/bpf_helpers.h>
-#include "netqtop.h"
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -26,22 +25,6 @@ struct {
     __type(value, struct queue_data);
 } rxevent SEC(".maps");
 
-static inline int name_filter(const char *dev_name) {
-    union name_buf real_devname;
-    bpf_probe_read_kernel(&real_devname, sizeof(real_devname), dev_name);
-
-    int key = 0;
-    union name_buf *leaf = bpf_map_lookup_elem(&name_map, &key);
-    if (!leaf) {
-        return 0;
-    }
-    if ((leaf->name_int).hi != real_devname.name_int.hi || (leaf->name_int).lo != real_devname.name_int.lo) {
-        return 0;
-    }
-
-    return 1;
-}
-
 static void update_data(struct queue_data *data, u64 len) {
     data->total_pkt_len += len;
     data->num_pkt++;
@@ -59,19 +42,17 @@ static void update_data(struct queue_data *data, u64 len) {
     }
 }
 
-SEC("tracepoint/net/net_dev_start_xmit")
+/*SEC("tracepoint/net/net_dev_start_xmit")
 int trace_net_dev_start_xmit(struct trace_event_raw_sys_enter *ctx) {
     struct sk_buff skb;
     bpf_probe_read_kernel(&skb, sizeof(skb), (void *)ctx->args[0]);
 
-    if (!name_filter(skb.dev->name)) {
-        return 0;
-    }
+    u16 qid;
+    bpf_probe_read_kernel(&qid, sizeof(qid), &skb.queue_mapping);
 
-    u16 qid = skb.queue_mapping;
+    struct queue_data newdata = {0};
     struct queue_data *data = bpf_map_lookup_elem(&txevent, &qid);
     if (!data) {
-        struct queue_data newdata = {0};
         bpf_map_update_elem(&txevent, &qid, &newdata, BPF_NOEXIST);
         return 0;
     }
@@ -80,16 +61,48 @@ int trace_net_dev_start_xmit(struct trace_event_raw_sys_enter *ctx) {
     bpf_map_update_elem(&txevent, &qid, data, 0);
 
     return 0;
+}*/
+
+/*SEC("tracepoint/net/net_dev_start_xmit")
+int trace_net_dev_start_xmit(struct trace_event_raw_sys_enter *ctx) {
+    void *skbaddr = (void *)ctx->args[0];
+    struct sk_buff skb = {};
+
+    bpf_probe_read_kernel(&skb, sizeof(skb), skbaddr);
+
+    u16 qid = skb.queue_mapping;
+
+    struct queue_data newdata = {};
+    struct queue_data *data = bpf_map_lookup_elem(&txevent, &qid);
+    if (!data) {
+        bpf_map_update_elem(&txevent, &qid, &newdata, BPF_NOEXIST);
+        return 0;
+    }
+
+    update_data(data, skb.len);
+    bpf_map_update_elem(&txevent, &qid, data, 0);
+    return 0;
+}*/
+
+SEC("tracepoint/net/net_dev_start_xmit")
+int trace_net_dev_start_xmit(struct trace_event_raw_sys_enter *ctx) {
+    void *skbaddr = (void *)ctx->args[0];
+    struct sk_buff skb = {};
+
+    bpf_core_read(&skb, sizeof(skb), skbaddr);
+
+    u16 qid = 0;
+    bpf_core_read(&qid, sizeof(qid), &skb.queue_mapping);
+
+    bpf_trace_printk("Queue ID: %u\n", qid);
+
+    return 0;
 }
 
 SEC("tracepoint/net/netif_receive_skb")
 int trace_netif_receive_skb(struct trace_event_raw_sys_enter *ctx) {
     struct sk_buff skb;
     bpf_probe_read_kernel(&skb, sizeof(skb), (void *)ctx->args[0]);
-
-    if (!name_filter(skb.dev->name)) {
-        return 0;
-    }
 
     u16 qid = 0;
 
@@ -107,3 +120,4 @@ int trace_netif_receive_skb(struct trace_event_raw_sys_enter *ctx) {
 }
 
 char LICENSE[] SEC("license") = "GPL";
+
